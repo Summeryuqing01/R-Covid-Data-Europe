@@ -1,0 +1,1045 @@
+---
+title: "Take Home Final Exam"
+output: html_document
+---
+
+For the take-home part of the MSDS 401 Final Exam, you are tasked with analyzing data on new daily covid-19 cases and deaths in European Union (EU) and European Economic Area (EEA) countries. A data file may be downloaded [here](https://www.ecdc.europa.eu/en/publications-data/data-daily-new-cases-covid-19-eueea-country), *or* you may use the provided **read.csv()** code in the 'setup' code chunk below to read the data directly from the web csv. Either approach is acceptable; the data should be the same.
+
+Once you have defined a data frame with the daily case and death and country data, you are asked to:  (1) perform an Exploratory Data Analysis (EDA), (2) perform some hypothesis testing, (3) perform some correlation testing, and (4) fit and describe a linear regression model. Each of these four (4) items is further explained below and "code chunks" have been created for you in which to add your R code, just as with the R and Data Analysis Assignments. You may add additional code chunks, as needed. You should make comments in the code chunks or add clarifying text between code chunks that you think further your work.
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE,
+                      message = FALSE)
+
+library(ggplot2)
+library(gridExtra)
+library(lubridate)
+library(tidyverse)
+library(dplyr)
+library(Hmisc)
+
+# The read.csv() below reads the data directly from the web. You may use this or
+# you can download and read from a local copy of the data file. To work from a
+# local file, you will need to modify the read.csv() code here:
+
+data <- read.csv("https://opendata.ecdc.europa.eu/covid19/nationalcasedeath_eueea_daily_ei/csv",
+                 na.strings = "", fileEncoding = "UTF-8-BOM")
+
+# The zero-th step in any analysis is to 'sanity check' our data. Here, we call
+# glimpse() from the 'dplyr' package, but utils::str() would work, as well.
+glimpse(data)
+
+#
+
+# The last thing we're going to do is drop the 'continentExp' vector (as all
+# observations are "Europe"), coerce the 'dateRep' vector to a date format, and
+# coerce the country and territory vectors to factors.
+
+data <- data %>%
+  select(-c("continentExp")) %>%
+  mutate(dateRep = dmy(dateRep),
+         countriesAndTerritories = as.factor(countriesAndTerritories),
+         geoId = as.factor(geoId),
+         countryterritoryCode = as.factor(countryterritoryCode))
+
+```
+
+A data dictionary for the dataset is available [here](https://www.ecdc.europa.eu/sites/default/files/documents/Description-and-disclaimer_daily_reporting.pdf).
+
+#### Definitions:
+
+* "Incidence rate" is equal to new daily cases per 100K individuals. Country population estimates can be found in 'popData2020.' You will calculate a daily incidence rate in item (1), for each country, that we will explore further in items (2) and (3).
+
+* "Fatality rate" is equal to new daily deaths per 100K individuals. Country population estimates can be found in 'popData2020.' You will calculate a daily fatality rate in item (1), for each country, that we will explore further in items (2) and (3).
+
+---
+
+#### 1. Descriptive Statistics
+  Perform an Exploratory Data Analysis (EDA). Your EDA is exactly that:  yours. Your knit .html should include the visualizations and summary tables that you find valuable while exploring this dataset. **However**, at minimum, your EDA must include the following:
+
+* Creation of a vector, 'incidence_rate,' equal to the daily new cases per 100K individuals, per country. Country populations are provided in 'popData2020.' This vector should be added to the 'data' data frame.
+* Creation of a vector, 'fatality_rate,' equal to the new deaths per 100K individuals, per country. Country populations are provided in 'popData2020.' This vector should be added to the 'data' data frame.
+* A visualization exploring new cases or incidence rates, per country, over time. You may choose a subset of countries, if you wish, but your visualization should include at least five (5) countries and include the entire time frame of the dataset.
+* A visualization exploring new deaths or fatality rates, per country, over time. You may choose a subset of countries, if you wish, but your visualization should include at least five (5) countries.
+* A table or visualization exploring some other aspect of the data. For example, you could explore case fatality rates per country; the number of deaths divided by the total number of cases. Note that to do this, you would want to like across the entire time of the dataset, looking at the total cases and deaths, per country.
+
+```{r, fig.width = 8, fig.height = 8}
+#create vectors
+data$Incidence_rate <- (data$cases/data$popData2020)*100000
+data$Fatality_rate <- (data$deaths/data$popData2020) *100000
+```
+
+
+```{r,fig.width = 8, fig.height = 8}
+head(data)
+```
+
+
+```{r descriptive_stats, fig.width = 8, fig.height = 8}
+summary(data)
+str(data)
+```
+
+```{r}
+# omit NAs
+data = na.omit(data)
+summary(data)
+str(data)
+```
+
+
+
+We found some values of cases and deaths have negative value, so we decide to filter these negative value out 
+```{r}
+# filter cases > 0, death > 0 
+
+data = data %>%
+  filter(cases >0)  %>%
+  filter(deaths >0) 
+  
+  
+```
+
+
+
+
+```{r}
+# A visualization exploring new cases, per country, over time.
+top_mean_cases <- data %>%
+  group_by(countriesAndTerritories) %>%
+  summarise_at(vars(cases), list(name = mean)) %>%
+  arrange(desc(name)) %>%
+  slice_head(n = 7) %>%    
+  pull(countriesAndTerritories) 
+
+top_mean_cases
+```
+```{r}
+top_countries_cases <- data %>%
+  filter(countriesAndTerritories %in% top_mean_cases)
+head(top_countries_cases)
+```
+
+
+```{r}
+p <- ggplot(top_countries_cases, aes(x = round_date(as.POSIXct(dateRep), "days"), 
+                                 y = cases, color = countriesAndTerritories)) +
+  geom_line() + 
+  xlab("")+
+  theme_classic()+
+  labs(title = "New Cases From 2020 to 2022 ",
+         x = "Date",
+         y = "New Cases")+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+p
+```
+### In the new cases plot, France and the Netherlands have the highest number of cases in 2022, indicating the covid-19 outbreak in 2022 in these countries. 
+
+
+
+
+### Visuals for Incidence Rate
+```{r}
+top_mean_incidence <- data %>%
+  group_by(countriesAndTerritories) %>%
+  summarise_at(vars(Incidence_rate), list(name = mean)) %>%
+  arrange(desc(name)) %>%
+  slice_head(n = 7) %>%    
+  pull(countriesAndTerritories) 
+
+top_mean_incidence
+```
+```{r}
+top_countries_incidence <- data %>%
+  filter(countriesAndTerritories %in% top_mean_incidence)
+head(top_countries_incidence)
+```
+
+```{r}
+p <- ggplot(top_countries_incidence, aes(x = round_date(as.POSIXct(dateRep), "days"), 
+                                 y = Incidence_rate, color = countriesAndTerritories)) +
+  geom_line() + 
+  xlab("")+
+  theme_classic()+
+  labs(title = "Incidence Rate From 2020 to 2022 ",
+         x = "Date",
+         y = "Incidence Rate")+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+p
+```
+
+### Iceland has the highest incidence rate in 2022.
+
+
+```{r}
+p <- ggplot(top_countries_incidence, aes(x = countriesAndTerritories, y = Incidence_rate))+
+  geom_boxplot()
+p
+```
+As we can see, there are many extreme outliers in the boxplot. Let's try log transformation
+```{r}
+p <- ggplot(top_countries_incidence, aes(x = round_date(as.POSIXct(dateRep), "days"), 
+                                 y = log10(Incidence_rate), color = countriesAndTerritories)) +
+  geom_line() + 
+  xlab("")+
+  theme_classic()+
+  labs(title = "Incidence Rate From 2020 to 2022 ",
+         x = "Date",
+         y = "Log Incidence Rate")+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+p
+```
+
+
+```{r}
+p <- ggplot(top_countries_incidence, aes(x = countriesAndTerritories, y = log10(Incidence_rate)))+
+  geom_boxplot()
+p
+```
+Log Transformation doesn't work because now we have a lot of extremely small outliers. Try to inspect countries individually:
+```{r}
+top_mean_incidence
+```
+```{r}
+Cyprus <- data %>%
+  filter(countriesAndTerritories == 'Cyprus')
+p <- ggplot(Cyprus, aes(x = round_date(as.POSIXct(dateRep), "days"), 
+                                 y = Incidence_rate)) +
+  geom_line(color = 'blue') + 
+  xlab("")+
+  theme_classic()+
+  labs(title = " Cyprus Incidence Rate From 2020 to 2022 ",
+         x = "Date",
+         y = "Incidence Rate")+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+p
+```
+```{r}
+p <- ggplot(Cyprus, aes(x = countriesAndTerritories, y = Incidence_rate))+
+  geom_boxplot()
+p
+```
+
+Find extreme outliers:
+```{r}
+quantile(Cyprus$Incidence_rate, probs = 0.75)
+upper = 69.96019+3*IQR(Cyprus$Incidence_rate)
+extreme_outliers = Cyprus[Cyprus$Incidence_rate>upper,]
+extreme_outliers
+summary(extreme_outliers)
+```
+```{r}
+table(extreme_outliers$month)
+table(extreme_outliers$year)
+```
+The extreme outliers in Cyprus happened mainly during the winter of 2022.
+
+
+
+### Visuals for Fatality Rate:
+```{r}
+# A visualization exploring fatality rate, per country, over time.
+top_mean_fatality <- data %>%
+  group_by(countriesAndTerritories) %>%
+  summarise_at(vars(Fatality_rate), list(name = mean)) %>%
+  arrange(desc(name)) %>%
+  slice_head(n = 7) %>%    
+  pull(countriesAndTerritories) 
+
+top_mean_fatality
+
+top_countries_fatality <- data %>%
+  filter(countriesAndTerritories %in% top_mean_incidence)
+head(top_countries_fatality)
+```
+
+
+
+
+
+```{r}
+p <- ggplot(top_countries_fatality, aes(x = round_date(as.POSIXct(dateRep), "days"), 
+                                 y = Fatality_rate, color = countriesAndTerritories)) +
+  geom_line() + 
+  xlab("")+
+  theme_classic()+
+  labs(title = "Fatality Rate From 2020 to 2022 ",
+         x = "Date",
+         y = "New Cases")+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+p
+```
+Greece has an extremely high fatality rate in 2021.
+
+
+
+```{r}
+p <- ggplot(top_countries_fatality, aes(x = countriesAndTerritories, y = Fatality_rate))+
+  geom_boxplot()
+p
+```
+```{r}
+p <- ggplot(top_countries_fatality, aes(x = round_date(as.POSIXct(dateRep), "days"), 
+                                 y = log10(Fatality_rate), color = countriesAndTerritories)) +
+  geom_line() + 
+  xlab("")+
+  theme_classic()+
+  labs(title = "Fatality Rate From 2020 to 2022 ",
+         x = "Date",
+         y = "Log Fatality Rate")+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+p
+```
+```{r}
+p <- ggplot(top_countries_fatality, aes(x = countriesAndTerritories, y = log10(Fatality_rate)))+
+  geom_boxplot()
+p
+```
+
+
+```{r}
+# A table or visualization exploring some other aspect of the data.
+str(data)
+```
+
+
+
+
+```{r}
+# A visualization exploring new cases, per country, over time.
+top_mean_deaths <- data %>%
+  group_by(countriesAndTerritories) %>%
+  summarise_at(vars(deaths), list(name = mean)) %>%
+  arrange(desc(name)) %>%
+  slice_head(n = 7) %>%    
+  pull(countriesAndTerritories) 
+
+top_mean_deaths
+```
+
+
+
+```{r}
+top_countries_deaths <- data %>%
+  filter(countriesAndTerritories %in% top_mean_deaths)
+head(top_countries_deaths)
+```
+
+
+```{r}
+p <- ggplot(top_countries_deaths, aes(x = round_date(as.POSIXct(dateRep), "days"), 
+                                 y = deaths, color = countriesAndTerritories)) +
+  geom_line() + 
+  xlab("")+
+  theme_classic()+
+  labs(title = "Deaths From 2020 to 2022 ",
+         x = "Date",
+         y = "Deaths")+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+p
+```
+
+
+* A table or visualization exploring some other aspect of the data. For example, you could explore case fatality rates per country
+
+```{r}
+
+#explore case fatality rates per country
+case_fatality_rate_summary <- data %>%
+  group_by(countriesAndTerritories) %>%
+  summarise(case_fatality_rate = sum(deaths)/sum(cases)) %>%
+  arrange(desc(case_fatality_rate)) 
+case_fatality_rate_summary
+
+```
+
+
+
+### A visualization exploring case fatality rates per country
+```{r,fig.width = 20, fig.height = 10}
+#A visualization exploring case fatality rates per country
+ggplot(case_fatality_rate_summary, aes(x = reorder(countriesAndTerritories, -case_fatality_rate), y = case_fatality_rate, fill = countriesAndTerritories)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  
+  labs(title = "Case Fatality Rates by Country",
+       x = "Country",
+       y = "Case Fatality Rate ") +
+  theme_minimal() +
+  scale_fill_viridis_d()  
+
+```
+
+
+
+#### 2. Inferential Statistics
+  Select two (2) countries of your choosing and compare their incidence or fatality rates using hypothesis testing. At minimum, your work should include the following:
+
+* Visualization(s) comparing the daily incidence or fatality rates of the selected countries,
+* A statement of the null hypothesis.
+* A short justification of the statistical test selected.
+    + Why is the test you selected an appropriate one for the comparison we're making?
+* A brief discussion of any distributional assumptions of that test.
+    + Does the statistical test we selected require assumptions about our data?
+    + If so, does our data satisfy those assumptions?
+* Your selected alpha.
+* The test function output; i.e. the R output.
+* The relevant confidence interval, if not returned by the R test output.
+* A concluding statement on the outcome of the statistical test.
+    + i.e. Based on our selected alpha, do we reject or fail to reject our null hypothesis?
+    
+    
+*Incidence Rate*
+
+```{r,fig.width = 12, fig.height = 6}
+# Incidence Rate
+# Hypothesis Test for Difference in Means
+
+selected_countries <- c("Spain", "Italy")
+filtered_data <- data[data$countriesAndTerritories %in% selected_countries,]
+
+ggplot(filtered_data, aes(x = Incidence_rate, fill = countriesAndTerritories)) +
+  geom_histogram(position = "dodge", binwidth = 20, alpha = 0.7) +
+  labs(title = "Incidence Rate Distributions with Confidence Intervals",
+       x = "Incidence rate",
+       y = "Frequency") +
+  facet_wrap(~ countriesAndTerritories) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Two-sided t-test
+Null Hypothesis (H0): There is no difference in the mean incidence rates between Spain and Italy.
+
+Justification:
+We selected a two-sided t-test for comparing the mean incidence rates of Spain and Italy. This test is appropriate to compare the means of two independent samples. 
+
+Assumption Check:
+By visually inspecting the histograms of the incidence rates for Spain and Italy above, we can see the distributions of incidence rates in both Spain and Italy are not perfectly normally distributed while N > 30 in both countries, so the t-test is suitable for this analysis.
+
+Selected Alpha:
+Our selected alpha level is 0.05, which means that we are willing to accept a 5% chance of committing a Type I error when rejecting the null hypothesis.
+
+```{r}
+spain_data <- filtered_data[filtered_data$countriesAndTerritories == 'Spain',]
+italy_data <- filtered_data[filtered_data$countriesAndTerritories == 'Italy',]
+
+t.test(spain_data$Incidence_rate, italy_data$Incidence_rate, alternative = c("two.sided"), mu = 0, paired = FALSE, var.equal = TRUE, conf.level = 0.95)
+conf_interval_spain <- round(t.test(spain_data$Incidence_rate)$conf.int, 2)
+conf_interval_italy <- round(t.test(italy_data$Incidence_rate)$conf.int, 2)
+
+print(paste("Confidence Interval for Spain: (", conf_interval_spain[1], ",", conf_interval_spain[2], ")."))
+print(paste("Confidence Interval for Italy: (", conf_interval_italy[1], ",", conf_interval_italy[2], ")."))
+
+```
+Conclusion of the t-test:
+The p-value 0.05097 is slightly larger than 0.05, so we may fail to reject the null hypothesis there is no difference in the mean incidence rates between Spain and Italy.
+
+
+```{r}
+combined_data_incidence <- rbind(
+  data.frame(Incidence_rate = spain_data$Incidence_rate, Country = 'Spain'),
+  data.frame(Incidence_rate = italy_data$Incidence_rate, Country = 'Italy')
+)
+
+ggplot(combined_data_incidence, aes(x = Incidence_rate, fill = Country)) +
+  geom_histogram(position = "dodge", binwidth = 20, alpha = 0.7) +
+  geom_vline(data = data.frame(Country = 'Spain', xintercept = conf_interval_spain), aes(xintercept = xintercept, color = Country), linetype = "dashed") +
+  geom_vline(data = data.frame(Country = 'Italy', xintercept = conf_interval_italy), aes(xintercept = xintercept, color = Country), linetype = "dashed") +
+  scale_color_manual(values = c('Spain' = 'darkorange', 'Italy' = 'darkorange')) +
+  labs(title = "Incidence Rate Distributions with Confidence Intervals",
+       x = "Incidence rate",
+       y = "Frequency") +
+  facet_wrap(~ Country) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+```{r}
+# Hypothesis Test for Variances
+selected_countries <- c("Spain", "Italy")
+filtered_data <- data[data$countriesAndTerritories %in% selected_countries,]
+
+ggplot(filtered_data, aes(x = countriesAndTerritories, y = Incidence_rate, fill = countriesAndTerritories)) +
+  geom_boxplot() +
+  labs(title = "Incidence Rate: Spain vs. Italy",
+       x = "Country",
+       y = "Incidence Rate") +
+  theme_minimal()
+```
+
+ANOVA Test
+The null hypothesis (H0): There are no significant differences in the mean incidence rates between Spain and Italy.
+
+Justification:
+We selected the Analysis of Variance (ANOVA) test to assess whether there are differences in the mean incidence rates between Spain and Italy because ANOVA test is appropriate for comparing means across multiple groups, in this case, the two countries Spain and Italy.
+
+```{r}
+two_countries_data <- data %>%
+  filter(countriesAndTerritories %in% c("Spain", "Italy"))
+
+bartlett.test(Incidence_rate ~ countriesAndTerritories, two_countries_data)
+```
+Assumption Check:
+From the box-plots above, we can see that the two countries have similar spreads, which could support the assumption of homogeneity of variances. However, from the bartlett test, we can see that the p value 0.01328 is small, so we should reject the null hypothesis and have evidence to support the alternative hypothesis that the variances within the two countries are not equal. Violations of normality and homogeneity of variances may affect the accuracy of the results, but ANOVA is still robust especially with larger sample sizes in both countries.
+
+Selected Alpha:
+Our selected alpha level is 0.05.
+
+```{r}
+anova_result <- aov(Incidence_rate ~ countriesAndTerritories, two_countries_data)
+summary(anova_result)
+```
+Conclusion of the Statistical Test:
+The p-value 0.051 is slightly larger than 0.05, so we may fail to reject the null hypothesis that there are no significant differences in the mean incidence rates between Slovenia and France.
+
+
+
+*Fatality Rate*
+
+```{r}
+selected_countries <- c("Spain", "Italy")
+filtered_data <- data[data$countriesAndTerritories %in% selected_countries,]
+
+ggplot(filtered_data, aes(x = Fatality_rate, fill = countriesAndTerritories)) +
+  geom_histogram(position = "dodge", binwidth = 0.1, alpha = 0.7) +
+  labs(title = "Fatality Rate Distributions with Confidence Intervals",
+       x = "Fatality rate",
+       y = "Frequency") +
+  facet_wrap(~ countriesAndTerritories) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Two-sided t-test
+Null Hypothesis (H0): There is no difference in the mean fatality rates between Spain and Italy.
+
+Justification:
+We selected a two-sided t-test for comparing the mean fatality rates of Spain and Italy. This test is appropriate to compare the means of two independent samples. 
+
+Assumption Check:
+By visually inspecting the histograms of the fatality rates for Spain and Italy above, we can see the distributions of fatality rates in both Spain and Italy are not perfectly normally distributed while N > 30 in both countries, so the t-test is suitable for this analysis.
+
+Selected Alpha:
+Our selected alpha level is 0.05, which means that we are willing to accept a 5% chance of committing a Type I error when rejecting the null hypothesis.
+
+T-test
+
+```{r}
+spain_data <- filtered_data[filtered_data$countriesAndTerritories == 'Spain',]
+italy_data <- filtered_data[filtered_data$countriesAndTerritories == 'Italy',]
+
+t.test(spain_data$Fatality_rate, italy_data$Fatality_rate, alternative = c("two.sided"), mu = 0, paired = FALSE,
+       var.equal = TRUE, conf.level = 0.95)
+conf_interval_spain_fa <- round(t.test(spain_data$Fatality_rate)$conf.int, 2)
+conf_interval_italy_fa <- round(t.test(italy_data$Fatality_rate)$conf.int, 2)
+
+print(paste("Confidence Interval for Spain: (", conf_interval_spain_fa[1], ",", conf_interval_spain_fa[2], ")."))
+print(paste("Confidence Interval for Italy: (", conf_interval_italy_fa[1], ",", conf_interval_italy_fa[2], ")."))
+```
+
+Conclusion of the t-test:
+Given the p-value (0.2028) is greater than the conventional alpha level of 0.05, we fail to reject the null hypothesis. This implies there is no statistically significant difference in the mean daily fatality rates between Spain and Italy, based on the provided data.
+
+```{r}
+# Calculate confidence intervals
+calculate_confidence_interval <- function(data, confidence_level = 0.95) {
+  n <- length(data)
+  mean_value <- mean(data)
+  sd_value <- sd(data)
+  alpha <- 1 - confidence_level
+  critical_value <- qnorm(1 - alpha / 2)
+  margin_of_error <- critical_value * (sd_value / sqrt(n))
+  
+  return(c(mean_value - margin_of_error, mean_value + margin_of_error))
+}
+
+# Create a combined dataframe for plotting
+combined_data <- rbind(
+  data.frame(Fatality_rate = spain_data$Fatality_rate, Country = 'Spain'),
+  data.frame(Fatality_rate = italy_data$Fatality_rate, Country = 'Italy')
+)
+
+# Create histograms with confidence intervals
+ggplot(combined_data, aes(x = Fatality_rate, fill = Country)) +
+  geom_histogram(position = "dodge", binwidth = 0.1, alpha = 0.7) +
+  geom_vline(data = data.frame(Country = 'Spain', xintercept = conf_interval_spain_fa), aes(xintercept = xintercept, color = Country), linetype = "dashed") +
+  geom_vline(data = data.frame(Country = 'Italy', xintercept = conf_interval_italy_fa), aes(xintercept = xintercept, color = Country), linetype = "dashed") +
+  scale_color_manual(values = c('Spain' = 'orange', 'Italy' = 'orange')) +
+  labs(title = "Fatality Rate Distributions with Confidence Intervals",
+       x = "Fatality rate",
+       y = "Frequency") +
+  facet_wrap(~ Country) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+ANOVA Test
+The null hypothesis (H0): There are no significant differences in the mean fatality rates between Spain and Italy.
+
+Justification:
+We selected the Analysis of Variance (ANOVA) test to assess whether there are differences in the mean fatality rates between Spain and Italy because ANOVA test is appropriate for comparing means across multiple groups, in this case, the two countries Spain and Italy.
+
+```{r}
+# Box Plot for variance comparison
+ggplot(filtered_data, aes(x = countriesAndTerritories, y = Fatality_rate, fill = countriesAndTerritories)) +
+  geom_boxplot() +
+  labs(title = "Variance of Fatality Rate: Spain vs Italy",
+       x = "Country",
+       y = "Fatality Rate") +
+  theme_minimal()
+
+```
+
+```{r}
+two_countries_data <- data %>%
+  filter(countriesAndTerritories %in% c("Spain", "Italy"))
+
+bartlett.test(Fatality_rate ~ countriesAndTerritories, two_countries_data)
+```
+Assumption Check:
+The box plots above show that the two countries have similar spreads, which could support the concept of variance homogeneity. We should not reject the null hypothesis because the p-value of 0.6588 is greater than the standard alpha level of 0.05. Because the Bartlett test indicates that the variances are not statistically different, it validates the use of such tests. Violations of normality and variance homogeneity may impair the accuracy of the results, but ANOVA remains robust, particularly with higher sample sizes in both countries.
+
+Selected Alpha:
+Our selected alpha level is 0.05.
+
+```{r inferential_stats, fig.width = 9, fig.height = 8}
+# ANOVA test
+anova_result <- aov(Fatality_rate ~ countriesAndTerritories, data = filtered_data)
+summary(anova_result)
+
+```
+
+Conclusion of the Statistical Test:
+The p-value (0.203) is greater than the standard alpha level (0.05), indicating that we fail to reject the null hypothesis. This suggests there is no statistically significant difference in both countries.
+
+-----
+
+#### 3. Correlation
+  Considering all countries, explore the relationship between incidence rates and fatality rates. At minimum, your work should include the following:
+
+* Visualization(s) showing the distributions of daily incidence and fatality rates, regardless of country. Please note that both country and date should be disregarded here.
+* A short statement identifying the most appropriate correlation coefficient.
+    + For the correlation we're interested in, which correlation coefficient is most appropriate?
+    + Why do you find the correlation coefficient selected to be the most appropriate?
+* The calculated correlation coefficient or coefficient test output; e.g. *cor()* or *cor.test()*.
+  
+```{r correlation, fig.width = 8, fig.height = 8}
+ggplot(data, aes(x = Incidence_rate)) +
+  geom_histogram(bins = 35, fill = "lightblue", alpha = 1.2) +
+  labs(title = "Distribution of Daily Incidence Rates", x = "Incidence Rate", y = "Frequency")
+
+```
+
+
+```{r}
+# Histogram for Daily Fatality Rates
+ggplot(data, aes(x = Fatality_rate)) +
+  geom_histogram(bins = 30, fill = "purple", alpha = 1.2) +
+  labs(title = "Distribution of Daily Fatality Rates", x = "Fatality Rate", y = "Frequency")
+```
+
+```{r}
+
+data <- na.omit(data)
+
+pearson_corr <- cor(data$Incidence_rate, data$Fatality_rate, method = "pearson")
+print(paste("Pearson Correlation Coefficient:", pearson_corr))
+spearman_corr <- cor(data$Incidence_rate, data$Fatality_rate, method = "spearman")
+print(paste("Spearman Correlation Coefficient:", spearman_corr))
+
+```
+***Answer: (From the distribution of daily incidence rate and fatality rate, two data trends don't really follow normal distributions, The distribution of incidence rates may be skewed, indicating that most countries have lower incidence rates with fewer examples of very high rates. Fatality Rate is similiar to incidence rates.The Spearman correlation would be more fitted for the non-normal distribution, which can provide a more reliable measure between incidence and fatality rates under these conditions.)***
+
+
+#### 4. Regression
+  Here, we will fit a model on data from twenty (20) countries considering total new cases as a function of population, population density and gross domestic product (GDP) per capita. Note that the GDP per capita is given in "purchasing power standard," which considers the costs of goods and services in a country relative to incomes in that country; i.e. we will consider this as appropriately standardized.
+
+Code is given below defining a new data frame, 'model_df,' which provides the total area and standardized GDP per capita for the twenty (20) countries for our model fit. You are responsible for creating a vector of the total new cases across the time frame of the dataset, for each of those countries, and adding that vector to our 'model_df" data frame.
+
+```{r regression_a, fig.width = 8, fig.height = 8}
+
+# The code below creates a new data frame, 'model_df,' that includes the area,
+# GDP per capita, population and population density for the twenty (20)
+# countries of interest. All you should need to do is execute this code, as is.
+
+# You do not need to add code in this chunk. You will need to add code in the
+# 'regression_b,' 'regression_c' and 'regression_d' code chunks.
+
+twenty_countries <- c("Austria", "Belgium", "Bulgaria", "Cyprus", "Denmark",
+                      "Finland", "France", "Germany", "Hungary", "Ireland",
+                      "Latvia", "Lithuania", "Malta", "Norway", "Poland",
+                      "Portugal", "Romania", "Slovakia", "Spain", "Sweden")
+
+sq_km <- c(83858, 30510, 110994, 9251, 44493, 338145, 551695, 357386, 93030,
+           70273, 64589, 65300, 316, 385178, 312685, 88416, 238397, 49036,
+           498511, 450295)
+
+gdp_pps <- c(128, 118, 51, 91, 129, 111, 104, 123, 71, 190, 69, 81, 100, 142,
+             71, 78, 65, 71, 91, 120)
+
+model_df <- data %>%
+  select(c(countriesAndTerritories, popData2020)) %>%
+  filter(countriesAndTerritories %in% twenty_countries) %>%
+  distinct(countriesAndTerritories, .keep_all = TRUE) %>%
+  add_column(sq_km, gdp_pps) %>%
+  mutate(pop_dens = popData2020 / sq_km) %>%
+  rename(country = countriesAndTerritories, pop = popData2020)
+
+```
+
+Next, we need to add one (1) more column to our 'model_df' data frame. Specifically, one that has the total number of new cases for each of the twenty (20) countries. We calculate the total number of new cases by summing all the daily new cases, for each country, across all the days in the dataset.
+
+```{r regression_b}
+### The following code will be removed for students to complete the work themselves.
+
+total_cases <- data %>%
+  select(c(countriesAndTerritories, cases)) %>%
+  group_by(countriesAndTerritories) %>%
+  dplyr::summarize(total_cases = sum(cases, na.rm = TRUE)) %>%
+  filter(countriesAndTerritories %in% twenty_countries) %>%
+  select(total_cases)
+
+model_df <- model_df %>%
+  add_column(total_cases)
+
+```
+
+
+
+```{r}
+model_df
+```
+
+
+Now, we will fit our model using the data in 'model_df.' We are interested in explaining total cases (response) as a function of population (explanatory), population density (explanatory), and GDP (explanatory).
+
+At minimum, your modeling work should including the following:
+
+* A description - either narrative or using R output - of your 'model_df' data frame.
+    + Consider:  what data types are present? What do our rows and columns represent?
+* The *lm()* *summary()* output of your fitted model. As we did in the second Data Analysis Assignment, you can pass your fitted model object - i.e. the output of **lm()** - to *summary()* and get additional details, including R^2, on your model fit.
+* A short statement on the fit of the model.
+    + Which, if any, of our coefficients are statistically significant?
+    + What is the R^2 of our model?
+    + Should we consider a reduced model; i.e. one with fewer parameters?
+
+
+### Description of model_df
+```{r regression_c}
+# Description of model_df
+str(model_df)
+summary(model_df)
+```
+***Answer:
+country: Categorical variable represented as a factor with 20 distinct categories.
+pop: Population count for each country, formatted as an integer value.
+sq_km: The land area of each country in square kilometers, an integer value.
+gdp_pps: GDP per capita expressed in purchasing power standards, an integer that adjusts for varying prices and income levels across countries.
+pop_dens: Population density, an integer calculated by dividing the population by the land area in square kilometers.
+total_cases: The cumulative number of new daily COVID-19 cases reported in each country, recorded as an integer.
+
+The dataset's structure indicates that there are 20 records and 6 features. Each row in the data frame represents a summary of observations for different countries. The columns contain distinct attributes: the name of the country, its population, area in square kilometers, GDP per capita adjusted for purchasing power, population density, and the total number of COVID-19 cases.
+
+
+### Correlation Analysis
+
+```{r}
+model_df
+```
+
+```{r}
+model_df[c(2,4:6)]
+```
+
+
+
+
+```{r  Correl}
+library(kableExtra)
+library(tidyr)
+correl <- cor(model_df[c(2,4:6)])
+correl %>%
+  kbl() %>%
+  kable_styling()
+pairs(model_df[c(2,4:6)], col = "blue", main = "Correlation Matrix")
+
+```
+### Correlation:
+There is a strong positive correlation between 'pop' and 'total_cases' (0.9428576), suggesting that countries with larger populations tend to report more COVID-19 cases. Other variables may not have a relationship with each other as the correlation value is near zero. 
+
+## Generic Model with all variables
+
+```{r lm}
+
+model1 <- lm(total_cases ~ pop+gdp_pps+pop_dens, model_df)
+summary(model1)
+
+```
+
+## STEPWISE Regression
+
+The produced model has adjust R^2 of 0.8747, we need to produce a parsimonious model, and to do so, we will need to drop some of the variables.
+
+The method we choose to do this was with StepWise Regression AIC.
+
+
+```{r lm with step wise}
+library(MASS)
+stepAIC(model1)
+```
+
+Based on the results of Stepwise Regression, the population variable has the lowest AIC value, indicating the best fit for the model. Therefore, we use the population variable to fit the model. 
+```{r}
+model2 <- lm(total_cases ~ pop, model_df)
+summary(model2)
+```
+
+
+
+Additionally, we include population and GDP in Model 3 as they are the second-best choice according to Stepwise Regression.
+```{r}
+model3 <- lm(total_cases ~ pop+gdp_pps, model_df)
+summary(model3)
+
+```
+
+MSE comparison
+```{r}
+mean(model2$residuals^2)
+mean(model3$residuals^2)
+```
+
+
+
+
+```{r}
+par(mfrow=c(1,2))
+hist(model2$residuals, main = "Histogram of Residuals", col = "red", freq = FALSE,ylab="Frequency")
+#curve(dnorm(x,0,sd(x)),add=TRUE, col="green", lwd = 2)
+
+qqnorm(model2$residuals, main = "Q-Q Plot of Residuals", col = "red", pch = 16)
+qqline(model2$residuals, col = "green", lty = 2, lwd = 2)
+
+
+par(mfrow=c(1,2))
+hist(model3$residuals, main = "Histogram of Residuals", col = "red", freq = FALSE,ylab="Frequency")
+#curve(dnorm(x,0,sd(x)),add=TRUE, col="green", lwd = 2)
+
+qqnorm(model3$residuals, main = "Q-Q Plot of Residuals", col = "red", pch = 16)
+qqline(model3$residuals, col = "green", lty = 2, lwd = 2)
+
+```
+
+
+
+
+## The Best Fitting model
+The recommended model 2 with the Stepwise method includes population as parameters, but the R^2 seems to be slightly larger than the initial model. Although the Stepwise methos recommend includes population as parameters, we try to fit a model 3 with population and gdp as parameters.The model3 has a similar p value and adjust R^2 value. We believe DGP is a great predictor to predict the total case, so model 3 is the best model including population and GDP. 
+
+
+## EDA for the identified predictors
+
+``` {r plots}
+
+p1 <- ggplot(model_df, aes(x = pop, y = total_cases)) +
+  geom_point(color = "blue") +
+  ggtitle("Population vs Total Cases") +
+  theme_minimal()
+
+
+p2 <- ggplot(model_df, aes(x = gdp_pps, y = total_cases)) +
+  geom_point(color = "purple") +
+  ggtitle("GDP vs Total Cases") +
+  theme_minimal()
+
+
+grid.arrange(p1, p2, ncol = 2)
+
+qq = ggplot(model_df, aes(sample = total_cases))+
+  geom_qq(color = "orange")+
+  geom_qq_line()+
+  labs(title = "Normality for response", x = "Theoretical Quantiles", y = "Sample Quantiles")
+qq 
+```
+
+## Reviewing Residuals
+
+Although the test of normality for the response variable is optional and doesn't add value to the analysis. The test of normality for the residuals does.
+
+We review the residuals closely and identify what predictors create issues if any and also if there are outliers.
+In this step, we compare the residuals of model 2 and model 3
+
+
+
+```{r rediduals}
+r <- residuals(model3)
+par(mfrow = c())
+hist(r,30, main = "Residuals distribution", col = "red")
+plot(r,main = "Fitted Residuals", col = "red")
+abline(h=0)
+
+
+library(ggplot2)
+library(moments)
+x <- r
+par(mfrow=c(1,2))
+hist(r, main = "Histogram of Residuals", col = "red", freq = FALSE,ylab="Frequency")
+curve(dnorm(x,0,sd(x)),add=TRUE, col="green", lwd = 2)
+
+qqnorm(r, main = "Q-Q Plot of Residuals", col = "red", pch = 16)
+qqline(r, col = "green", lty = 2, lwd = 2)
+
+
+
+
+
+
+```
+
+```{r}
+r_2 <- residuals(model2)
+x <- r_2
+par(mfrow=c(1,2))
+hist(r_2, main = "Histogram of Residuals", col = "red", freq = FALSE,ylab="Frequency")
+curve(dnorm(x,0,sd(x)),add=TRUE, col="green", lwd = 2)
+
+qqnorm(r_2, main = "Q-Q Plot of Residuals", col = "red", pch = 16)
+qqline(r_2, col = "green", lty = 2, lwd = 2)
+```
+When comparing the residuals of model 2 and model 3, we found that the distribution of model 2 and model 3 are normally distributed and most of the points lay on the qq line. However, model 3 is the best-fitted model because the residuals fit on the qq line better than model 2
+
+
+
+
+## Autocorrelation Durbin Test
+
+A test on autocorrelation of residuals. The test shows autocorrelation of the points.
+
+```{r autocorrelation, fig.height = 5}
+library(car)
+dwt(model3)
+
+```
+In summary, the Durbin-Watson test result suggests that there is no significant autocorrelation in the residuals of the regression model model3, as the D-W statistic is close to 2, and the p-value is much higher than 0.05. Therefore, the null hypothesis of no autocorrelation cannot be rejected.
+
+
+### detect residual pattern-model3
+```{r}
+# detect residual pattern
+residual_pop = ggplot(model_df,aes(x=pop, y=r))+
+  geom_point()+
+  labs(title = "Residuals versus population", x = "population", y = "Residuals" )
+
+residual_gdp = ggplot(model_df,aes(x=gdp_pps, y=r))+
+  geom_point()+
+  labs(title = "Residuals versus GDP", x = "GDP", y = "Residuals" )
+
+
+grid.arrange(residual_pop,residual_gdp,ncol = 2 )
+```
+
+### Conclusion: There is no trend in the residual plot, suggesting that residuals do not have relationships with independent variables. 
+
+
+
+The last thing we will do is use our model to predict the  total new cases of two (2) countries not included in our model fit. At minimum, your work should include:
+
+* The predicted total new cases for both countries.
+* The actual total new cases for both countries.
+* A short statement on the performance of the model in these two (2) cases.
+    + Compare the new predictions to those made on the fitted dataset. You may compare the predicted values or the residuals.
+  
+
+  
+```{r regression_d}
+
+# The code below defines our 'newdata' data frame for applying our model to the
+# population, population density and GDP per capita for two (2). Please execute
+# the code as given.
+
+newdata <- data.frame(country = c("Luxembourg", "Netherlands"),
+                      pop = c(626108, 17407585),
+                      gdp_pps = c(261, 130),
+                      pop_dens = c(626108, 17407585) / c(2586, 41540))
+
+# Add code here returning the actual  total cases from our dataset for the
+# Netherlands and Luxembourg.
+
+actual_data <- data %>% 
+  filter(countriesAndTerritories  %in% c("Netherlands", "Luxembourg")) %>% 
+  group_by(countriesAndTerritories) %>%
+  dplyr::summarize(total_cases = sum(cases, na.rm = TRUE))
+
+print(actual_data)
+
+# Add code here returning the total cases for the Netherlands and Luxembourg
+# predicted by our model.
+
+
+
+
+```
+
+
+```{r}
+# Predicting total cases using the model
+predicted_cases <- predict(model3, newdata)
+
+# Adding predictions to the newdata data frame
+newdata$predicted_cases <- predicted_cases
+
+# Viewing the results
+print(newdata)
+```
+
+# Log Transformation
+Since the distribution of our dependent variable -- total_cases -- is skewed to the left, we want to see if making it more normally distributed can make the residuals more normally distributed thus improving the model's predictive power. 
+
+The log transformation is, arguably, the most popular among the different types of transformations used to transform skewed data to approximately conform to normality. As we can see from the histogram before and after log transformation, the data is significantly less skewed after transformation.
+```{r}
+log_model = model_df
+log_model = log_model[c(1:2,4:6)]
+par(mfrow = c(1,2))
+hist(log_model$total_cases, main = "Total Cases Before Log Transformation", xlab = "Total Cases", col= "lightblue")
+hist(log(log_model$total_cases), main = "Total Cases After Log Transformation", xlab = "Log Total Cases", col = "lightblue")
+```
+
+Correlation table after Log Transformation:
+we can observe that the correlations are different from before the transformation.
+```{r}
+correl <- cor(log_model[2:5])
+correl %>%
+  kbl() %>%
+  kable_styling()
+pairs(log_model[c(2:5)], col = "blue", main = "Correlation Matrix")
+```
+
+Step AIC:
+```{r}
+model_log = lm(total_cases~pop+gdp_pps+pop_dens, log_model)
+stepAIC(model_log)
+```
+Step AIC chose population and population density for our model. However, the R squared and p-value is not as good as model3.
+```{r}
+model_log1 = lm(total_cases~pop+pop_dens, log_model)
+summary(model_log1)
+```
+We want to check the normality of residuals, the shapiro test shows that model 3 barely passed the normality check while the log model performs better in terms of residual normality.
+```{r}
+shapiro.test(model_log1$residuals)
+shapiro.test(model3$residuals)
+```
+
+Visualized comparison between the distribution of model3 and log model
+```{r}
+par(mfrow = c(2,2))
+hist(model_log1$residuals, main = "Log Model Residuals", col="lightblue")
+qqnorm(model_log1$residuals)
+hist(model3$residuals, main = "Model 3 Residuals", col = "lightpink")
+qqnorm(model3$residuals)
+```
+From the histogram and qqplot we can conclude that the residuals of log model indeed appears more "normal" than model3. However, the other measurements such as R^2 and actual predicted value are not the best. Since model3 passed the normality check and performs better in other areas, model3 is still our best performing model.
+
+
